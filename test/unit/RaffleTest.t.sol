@@ -6,6 +6,8 @@ import {DeployRaffle} from "../../script/DeployRaffle.s.sol";
 import {Raffle} from "../../src/Raffle.sol";
 import {Test, console} from "../../lib/forge-std/src/Test.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
+import {Vm} from "../../lib/forge-std/src/Vm.sol";
+import {VRFCoordinatorV2Mock} from "@chainlink/contracts/src/v0.8/mocks/VRFCoordinatorV2Mock.sol";
 
 contract RaffleTest is Test {
     /* Events */
@@ -151,5 +153,44 @@ contract RaffleTest is Test {
             )
         );
         raffle.performUpkeep(""); // expicting this transaction to fail
+    }
+
+    modifier raffleEnterAndTimePassed() {
+        vm.prank(PLAYER);
+        raffle.enterRaffle{value: entranceFee}();
+        vm.warp(block.timestamp + interval + 1);
+        vm.roll(block.number + 1);
+        _;
+    }
+
+    // What if I need to test using the output of an event? (test of output if an event)
+
+    function testPerformUpkeepUpdatesRaffleStateAndEmitsRequestId()
+        public
+        raffleEnterAndTimePassed
+    {
+        // Aсt
+        vm.recordLogs();
+        raffle.performUpkeep(""); // this will emit the requestId
+        Vm.Log[] memory entries = vm.getRecordedLogs(); // Vm.Log[] array for all logs that are emitted
+        bytes32 requestId = entries[1].topics[0];
+        Raffle.RaffleState rState = raffle.getRaffleState();
+        assert(uint256(requestId) > 0); // make sure that requestId was acually generated (not 0)
+        assert(uint256(rState) == 1); // meaning the raffle is calculating
+    }
+
+    /////////////////////////
+    // fulfillRandomWords  //
+    /////////////////////////
+
+    function testFulFillRandomWordsCanOnlyBeCalledAfterPerformUpkeep(
+        uint256 randomRequestId
+    ) public raffleEnterAndTimePassed {
+        // Arrange
+        vm.expectRevert("nonexistent request");
+        VRFCoordinatorV2Mock(vrfCoordinator).fulfillRandomWords(
+            randomRequestId,
+            address(raffle)
+        );
     }
 }
